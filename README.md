@@ -24,7 +24,6 @@ Grammar is roughly:
 ## TODO
 
 * Finish up the parser, the redirection bit is still missing.
-* Squash the last bugs that could cause panics
 
 Besides whats there now I want to add:
 

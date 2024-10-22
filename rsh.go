@@ -16,7 +16,7 @@ type Cmd interface{}
 type Async struct{ Cmd }
 type List struct{ Left, Right Cmd }
 type Redir struct {
-	Cmd     Cmd
+	Cmd
 	In, Out string
 	Mode    int
 }
@@ -33,8 +33,16 @@ var (
 )
 
 func which(cmd string) string {
+	var err error
 	for _, p := range path {
+		if p == "." {
+			p, err = os.Getwd()
+			if err != nil {
+				p = ""
+			}
+		}
 		fp := filepath.Join(p, cmd)
+		// log.Printf("Which %q: %q\n", cmd, fp)
 		if _, err := os.Stat(fp); err == nil {
 			return fp
 		}
@@ -43,14 +51,14 @@ func which(cmd string) string {
 }
 
 func parse(ln string) (Cmd, error) {
+	if ln == "" {
+		return nil, nil
+	}
 	for strings.HasSuffix(ln, "\\") && s.Scan() {
 		ln = strings.TrimSuffix(ln, "\\") + s.Text()
 	}
 	if err := parsebuiltin(&ln); err != nil {
 		return nil, err
-	}
-	if ln == "" {
-		return nil, nil
 	}
 	return parseline(&ln), nil
 }
@@ -104,7 +112,7 @@ func parseline(ln *string) Cmd {
 				Success: true,
 			}
 		}
-		cmd = Async{cmd}
+		cmd = Async{Cmd: cmd}
 	}
 	if i := strings.IndexRune(*ln, ';'); i >= 0 {
 		*ln = (*ln)[i+1:]
@@ -142,10 +150,16 @@ func parseexec(ln *string) Cmd {
 		}
 	}
 done:
+	if name == "" {
+		return nil
+	}
 	return Exec{Args: strings.Fields(name)}
 }
 
-func mkcmd(args []string) *exec.Cmd {
+func mkcmd(args []string, stdin *os.File, stdout *os.File, stderr *os.File) *exec.Cmd {
+	if len(args) < 1 {
+		panic("empty list")
+	}
 	var name = args[0]
 	if len(args) > 1 {
 		args = args[1:]
@@ -153,70 +167,53 @@ func mkcmd(args []string) *exec.Cmd {
 		args = args[:0]
 	}
 	cmd := exec.Command(which(name), args...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	// log.Printf("%q with args %q\n", cmd.Path, cmd.Args)
+	cmd.Stdin = stdin
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 	return cmd
 }
 
-func run(cmd Cmd) error {
+func run(cmd Cmd, stdin *os.File, stdout *os.File, stderr *os.File) error {
 	if cmd == nil {
 		return nil
 	}
 	switch cmd := cmd.(type) {
 	case Exec:
-		x := mkcmd(cmd.Args)
-		if x.Path == "" {
-			return fmt.Errorf("%s: not found", cmd.Args[0])
+		if len(cmd.Args) < 1 {
+			return nil
 		}
-		if err := x.Run(); err != nil {
-			return err
-		}
+		x := mkcmd(cmd.Args, stdin, stdout, stderr)
+		return x.Run()
 	case Redir:
-		// TODO(thimc): Handle execution of redirection commands
+		if cmd.In != "" {
+			stdin, _ = os.OpenFile(cmd.In, cmd.Mode, 0)
+			defer stdin.Close()
+		} else if cmd.Out != "" {
+			stdout, _ = os.OpenFile(cmd.Out, cmd.Mode, 0)
+			defer stdout.Close()
+		}
+		return run(cmd, stdin, stdout, stderr)
 	case List:
-		if err := run(cmd.Left); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-		}
-		return run(cmd.Right)
-	case Async:
-		acmd, _ := cmd.Cmd.(Exec)
-		x := mkcmd(acmd.Args)
-		err := x.Start()
-		go func() {
-			x.Wait()
-			fmt.Fprintln(os.Stderr, x.Process.Pid, "exited")
-		}()
-		fmt.Fprintln(os.Stderr, x.Process.Pid)
-		return err
-	case Conditional:
-		xleft, _ := cmd.Left.(Exec)
-		lcmd := mkcmd(xleft.Args)
-		if err := lcmd.Run(); cmd.Success == (err == nil) {
-			xright, _ := cmd.Right.(Exec)
-			rcmd := mkcmd(xright.Args)
-			return rcmd.Run()
-		}
-		return nil
+		run(cmd.Left, stdin, stdout, stderr)
+		run(cmd.Right, stdin, stdout, stderr)
 	case Pipe:
-		r, w, err := os.Pipe()
-		if err != nil {
-			return err
+		r, w, _ := os.Pipe()
+		go func() {
+			run(cmd.Left, stdin, w, stderr)
+			w.Close()
+		}()
+		run(cmd.Right, r, stdout, stderr)
+		r.Close()
+	case Async:
+		go run(cmd.Cmd, stdin, stdout, stderr)
+	case Conditional:
+		err := run(cmd.Left, stdin, stdout, stderr)
+		if cmd.Success == (err == nil) {
+			return run(cmd.Right, stdin, stdout, stderr)
 		}
-		xleft, _ := cmd.Left.(Exec)
-		xright, _ := cmd.Right.(Exec)
-		lcmd := mkcmd(xleft.Args)
-		rcmd := mkcmd(xright.Args)
-		lcmd.Stdout = w
-		rcmd.Stdin = r
-		for _, err := range []error{lcmd.Start(), rcmd.Start(), w.Close(), r.Close(), lcmd.Wait()} {
-			if err != nil {
-				return err
-			}
-		}
-		return rcmd.Wait()
 	default:
-		panic(fmt.Sprintf("unexpected cmd: %#v", cmd))
+		panic(fmt.Sprintf("unexpected main.Cmd: %#v", cmd))
 	}
 	return nil
 }
@@ -255,8 +252,8 @@ func main() {
 			}
 			continue
 		}
-		//fmt.Printf("%#v\n", cmd)
-		if err := run(cmd); err != nil {
+		// log.Printf("%#v\n", cmd)
+		if err := run(cmd, file, os.Stdout, os.Stderr); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 		}
 	}
