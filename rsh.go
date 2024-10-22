@@ -77,11 +77,7 @@ func parsebuiltin(ln *string) error {
 		return os.Chdir(args[1])
 	case "path":
 		if len(args) < 2 {
-			fmt.Printf("path")
-			for _, p := range path {
-				fmt.Printf(" %s", p)
-			}
-			fmt.Println()
+			fmt.Println("path", strings.Join(path, " "))
 		} else {
 			path = args[1:]
 		}
