@@ -30,4 +30,3 @@ Besides whats there now I want to add:
 
 * file pattern matching, i.e globbing `ls /h*/` would expand to `ls /home/`
 * Quoting '...'
-* Continuation with a \ at the end of the line
