@@ -13,12 +13,16 @@ import (
 
 type Cmd interface{}
 
+type file struct {
+	Path string
+	Mode int
+}
+
 type Async struct{ Cmd }
 type List struct{ Left, Right Cmd }
 type Redir struct {
 	Cmd
-	In, Out string
-	Mode    int
+	In, Out *file
 }
 type Conditional struct {
 	Left, Right Cmd
@@ -174,27 +178,37 @@ func run(cmd Cmd, stdin *os.File, stdout *os.File, stderr *os.File) error {
 	if cmd == nil {
 		return nil
 	}
+	var err error
 	switch cmd := cmd.(type) {
 	case Exec:
 		if len(cmd.Args) < 1 {
 			return nil
 		}
-		x := mkcmd(cmd.Args, stdin, stdout, stderr)
-		return x.Run()
+		return mkcmd(cmd.Args, stdin, stdout, stderr).Run()
 	case Redir:
-		if cmd.In != "" {
-			stdin, _ = os.OpenFile(cmd.In, cmd.Mode, 0)
+		if cmd.In != nil {
+			stdin, err = os.OpenFile(cmd.In.Path, cmd.In.Mode, 0)
+			if err != nil {
+				return nil
+			}
 			defer stdin.Close()
-		} else if cmd.Out != "" {
-			stdout, _ = os.OpenFile(cmd.Out, cmd.Mode, 0)
+		}
+		if cmd.Out != nil {
+			stdout, err = os.OpenFile(cmd.Out.Path, cmd.Out.Mode, 0)
+			if err != nil {
+				return nil
+			}
 			defer stdout.Close()
 		}
-		return run(cmd, stdin, stdout, stderr)
+		return run(cmd.Cmd, stdin, stdout, stderr)
 	case List:
 		run(cmd.Left, stdin, stdout, stderr)
 		run(cmd.Right, stdin, stdout, stderr)
 	case Pipe:
-		r, w, _ := os.Pipe()
+		r, w, err := os.Pipe()
+		if err != nil {
+			return nil
+		}
 		go func() {
 			run(cmd.Left, stdin, w, stderr)
 			w.Close()
@@ -204,7 +218,7 @@ func run(cmd Cmd, stdin *os.File, stdout *os.File, stderr *os.File) error {
 	case Async:
 		go run(cmd.Cmd, stdin, stdout, stderr)
 	case Conditional:
-		err := run(cmd.Left, stdin, stdout, stderr)
+		err = run(cmd.Left, stdin, stdout, stderr)
 		if cmd.Success == (err == nil) {
 			return run(cmd.Right, stdin, stdout, stderr)
 		}
@@ -242,15 +256,13 @@ func main() {
 	doprompt(prompt)
 	for s = bufio.NewScanner(file); s.Scan(); doprompt(prompt) {
 		cmd, err := parse(strings.TrimSuffix(s.Text(), "\n"))
-		if err != nil || cmd == nil {
-			if err != nil {
-				fmt.Fprintln(os.Stderr, err)
-			}
-			continue
+		if err != nil {
+			goto printerr
+		} else if err := run(cmd, file, os.Stdout, os.Stderr); err != nil {
+			goto printerr
 		}
-		// log.Printf("%#v\n", cmd)
-		if err := run(cmd, file, os.Stdout, os.Stderr); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-		}
+		continue
+	printerr:
+		fmt.Fprintln(os.Stderr, err)
 	}
 }

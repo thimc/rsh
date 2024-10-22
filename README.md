@@ -19,6 +19,7 @@ Grammar is roughly:
 	|	simple word
 	|	simple < word
 	|	simple > word
+	|	simple < word1 > word2
 	|	simple &
 
 ## TODO
