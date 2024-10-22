@@ -13,7 +13,7 @@ import (
 
 type Cmd interface{}
 
-type Async struct{ Cmd Cmd }
+type Async struct{ Cmd }
 type List struct{ Left, Right Cmd }
 type Redir struct {
 	Cmd     Cmd
@@ -80,7 +80,7 @@ func parseline(ln *string) Cmd {
 	cmd := parsepipe(ln)
 	if i := strings.IndexRune(*ln, '&'); i >= 0 {
 		*ln = (*ln)[i+1:]
-		if (*ln)[i] == '&' {
+		if i < len(*ln) && (*ln)[i] == '&' {
 			*ln = (*ln)[i+1:]
 			return Conditional{
 				Left:    cmd,
@@ -101,7 +101,7 @@ func parsepipe(ln *string) Cmd {
 	cmd := parseexec(ln)
 	if i := strings.IndexRune(*ln, '|'); i >= 0 {
 		*ln = (*ln)[i+1:]
-		if (*ln)[i] == '|' {
+		if i < len(*ln) && (*ln)[i] == '|' {
 			*ln = (*ln)[i+1:]
 			return Conditional{
 				Left:    cmd,
@@ -149,11 +149,11 @@ func run(cmd Cmd) error {
 	}
 	switch cmd := cmd.(type) {
 	case Exec:
-		c := mkcmd(cmd.Args)
-		if c.Path == "" {
+		x := mkcmd(cmd.Args)
+		if x.Path == "" {
 			return fmt.Errorf("%s: not found", cmd.Args[0])
 		}
-		if err := c.Run(); err != nil {
+		if err := x.Run(); err != nil {
 			return err
 		}
 	case Redir:
@@ -164,14 +164,21 @@ func run(cmd Cmd) error {
 		}
 		return run(cmd.Right)
 	case Async:
-		// TODO(thimc): Handle execution of asynchronous commands
+		acmd, _ := cmd.Cmd.(Exec)
+		x := mkcmd(acmd.Args)
+		err := x.Start()
+		go func() {
+			x.Wait()
+			fmt.Fprintln(os.Stderr, x.Process.Pid, "exited")
+		}()
+		fmt.Fprintln(os.Stderr, x.Process.Pid)
+		return err
 	case Conditional:
-		lc, _ := cmd.Left.(Exec)
-		lcmd := mkcmd(lc.Args)
-		err := lcmd.Run()
-		if (err == nil) == cmd.Success {
-			rc, _ := cmd.Right.(Exec)
-			rcmd := mkcmd(rc.Args)
+		xleft, _ := cmd.Left.(Exec)
+		lcmd := mkcmd(xleft.Args)
+		if err := lcmd.Run(); cmd.Success == (err == nil) {
+			xright, _ := cmd.Right.(Exec)
+			rcmd := mkcmd(xright.Args)
 			return rcmd.Run()
 		}
 		return nil
@@ -180,10 +187,10 @@ func run(cmd Cmd) error {
 		if err != nil {
 			return err
 		}
-		lc, _ := cmd.Left.(Exec)
-		lcmd := mkcmd(lc.Args)
-		rc, _ := cmd.Right.(Exec)
-		rcmd := mkcmd(rc.Args)
+		xleft, _ := cmd.Left.(Exec)
+		xright, _ := cmd.Right.(Exec)
+		lcmd := mkcmd(xleft.Args)
+		rcmd := mkcmd(xright.Args)
 		lcmd.Stdout = w
 		rcmd.Stdin = r
 		for _, err := range []error{lcmd.Start(), rcmd.Start(), w.Close(), r.Close(), lcmd.Wait()} {
