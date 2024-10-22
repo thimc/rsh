@@ -27,7 +27,10 @@ type Conditional struct {
 type Pipe struct{ Left, Right Cmd }
 type Exec struct{ Args []string }
 
-var path = []string{".", "/bin", "/usr/bin", "/usr/local/bin"}
+var (
+	s    *bufio.Scanner
+	path = []string{".", "/bin", "/usr/bin", "/usr/local/bin"}
+)
 
 func which(cmd string) string {
 	for _, p := range path {
@@ -40,18 +43,30 @@ func which(cmd string) string {
 }
 
 func parse(ln string) (Cmd, error) {
+	for strings.HasSuffix(ln, "\\") && s.Scan() {
+		ln = strings.TrimSuffix(ln, "\\") + s.Text()
+	}
+	if err := parsebuiltin(&ln); err != nil {
+		return nil, err
+	}
 	if ln == "" {
 		return nil, nil
 	}
-	args := strings.Fields(ln)
+	return parseline(&ln), nil
+}
+
+func parsebuiltin(ln *string) error {
+	args := strings.Fields(*ln)
 	switch args[0] {
 	case "#":
-		return nil, nil
+		*ln = ""
+		return nil
 	case "cd":
 		if len(args) != 2 {
-			return nil, fmt.Errorf("Usage: cd directory")
+			return fmt.Errorf("Usage: cd directory")
 		}
-		return nil, os.Chdir(args[1])
+		*ln = ""
+		return os.Chdir(args[1])
 	case "path":
 		if len(args) < 2 {
 			fmt.Printf("path")
@@ -62,7 +77,8 @@ func parse(ln string) (Cmd, error) {
 		} else {
 			path = args[1:]
 		}
-		return nil, nil
+		*ln = ""
+		return nil
 	case "exit":
 		if len(args) == 1 {
 			os.Exit(0)
@@ -71,9 +87,9 @@ func parse(ln string) (Cmd, error) {
 			s, _ := strconv.Atoi(args[1])
 			os.Exit(s)
 		}
-		return nil, fmt.Errorf("Usage: exit [status]")
+		return fmt.Errorf("Usage: exit [status]")
 	}
-	return parseline(&ln), nil
+	return nil
 }
 
 func parseline(ln *string) Cmd {
@@ -205,14 +221,15 @@ func run(cmd Cmd) error {
 	return nil
 }
 
+func doprompt(p bool) {
+	if p {
+		fmt.Print("% ")
+	}
+}
+
 func main() {
 	var file *os.File
 	prompt := true
-	doprompt := func() {
-		if prompt {
-			fmt.Print("% ")
-		}
-	}
 	switch len(os.Args) {
 	case 1:
 		file = os.Stdin
@@ -229,9 +246,9 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [file]\n", os.Args[0])
 		os.Exit(1)
 	}
-	doprompt()
-	for s := bufio.NewScanner(file); s.Scan(); doprompt() {
-		cmd, err := parse(s.Text())
+	doprompt(prompt)
+	for s = bufio.NewScanner(file); s.Scan(); doprompt(prompt) {
+		cmd, err := parse(strings.TrimSuffix(s.Text(), "\n"))
 		if err != nil || cmd == nil {
 			if err != nil {
 				fmt.Fprintln(os.Stderr, err)
