@@ -108,7 +108,7 @@ func parsebuiltin(ln *string) error {
 
 func parseline(ln *string) (Cmd, error) {
 	cmd, err := parsepipe(ln)
-	if i := strings.IndexRune(*ln, '&'); i >= 0 {
+	if i := peek(*ln, '&'); i >= 0 {
 		*ln = (*ln)[i+1:]
 		if i < len(*ln) && (*ln)[i] == '&' {
 			*ln = (*ln)[i+1:]
@@ -120,7 +120,7 @@ func parseline(ln *string) (Cmd, error) {
 		}
 		cmd = Async{Cmd: cmd}
 	}
-	if i := strings.IndexRune(*ln, ';'); i >= 0 {
+	if i := peek(*ln, ';'); i >= 0 {
 		*ln = (*ln)[i+1:]
 		right, err := parseline(ln)
 		if err != nil {
@@ -133,7 +133,7 @@ func parseline(ln *string) (Cmd, error) {
 
 func parsepipe(ln *string) (Cmd, error) {
 	cmd, err := parseexec(ln)
-	if i := strings.IndexRune(*ln, '|'); i >= 0 {
+	if i := peek(*ln, '|'); i >= 0 {
 		*ln = (*ln)[i+1:]
 		if i < len(*ln) && (*ln)[i] == '|' {
 			*ln = (*ln)[i+1:]
@@ -158,23 +158,17 @@ func parsepipe(ln *string) (Cmd, error) {
 }
 
 func parseexec(ln *string) (Cmd, error) {
-	var name string
-	for i, r := range *ln {
-		switch r {
-		case '|', '&', ';':
-			*ln = (*ln)[i:]
-			goto done
-		default:
-			name += string(r)
-		}
+	args := *ln
+	if i, _ := peekany(*ln, "|&;"); i >= 0 {
+		args = args[:i]
+		*ln = (*ln)[i:]
 	}
-done:
-	if name == "" {
+	if args == "" {
 		return nil, nil
 	}
-	cmd := Exec{Args: fields(name)}
-	if strings.IndexAny(name, "<>") >= 0 {
-		return parseredirs(name)
+	cmd := Exec{Args: fields(args)}
+	if i, _ := peekany(args, "<>"); i >= 0 {
+		return parseredirs(args)
 	}
 	return cmd, nil
 }
@@ -182,16 +176,15 @@ done:
 func parseredirs(args string) (Cmd, error) {
 	var rcmd Redir
 	for {
-		i := strings.IndexAny(args, "<>")
+		i, r := peekany(args, "<>")
 		if i < 0 {
 			break
 		}
-		r := args[i]
 		start := i + 1
-		for start < len(args) && (args[start] == ' ' || args[start] == r) {
+		for start < len(args) && (args[start] == ' ' || rune(args[start]) == r) {
 			start++
 		}
-		end := strings.IndexAny(args[start:], " ")
+		end := peek(args[start:], ' ')
 		if end < 0 {
 			end = len(args)
 		} else {
@@ -219,43 +212,95 @@ func parseredirs(args string) (Cmd, error) {
 	return rcmd, nil
 }
 
+func peek(ln string, ch rune) int {
+	var quoted, escaped bool
+	for i, r := range ln {
+		switch r {
+		case '\\':
+			escaped = true
+			continue
+		case '\'':
+			quoted = !quoted
+			continue
+		}
+		if r == ch && !quoted && !escaped {
+			return i
+		}
+		escaped = false
+	}
+	return -1
+}
+
+func peekany(ln string, chars string) (int, rune) {
+	for _, r := range chars {
+		if i := peek(ln, r); i >= 0 {
+			return i, r
+		}
+	}
+	return -1, 0
+}
+
 func fields(s string) []string {
 	var (
-		list    []string
-		current string
-		quoted  = false
+		args    []string
+		arg     string
+		quoted  bool
+		escaped bool
+		doglob  bool
 	)
 	for _, r := range s {
+		if escaped {
+			arg += string(r)
+			escaped = false
+			continue
+		}
 		switch r {
+		case '\\':
+			if quoted {
+				arg += string(r)
+			}
+			escaped = true
 		case '\'':
 			quoted = !quoted
 		case ' ':
 			if quoted {
-				current += string(r)
+				arg += string(r)
 			} else {
-				if len(current) > 0 {
-					list = append(list, current)
-					current = ""
+				if len(arg) > 0 {
+					args = append(args, arg)
+					arg = ""
 				}
 			}
+		case '*', '?':
+			if !escaped && !quoted {
+				doglob = true
+			}
+			fallthrough
 		default:
-			current += string(r)
+			arg += string(r)
 		}
 	}
-	if len(current) > 0 {
-		list = append(list, current)
+	if len(arg) > 0 {
+		args = append(args, arg)
 	}
-	for i := 0; i < len(list); i++ {
-		if strings.IndexAny(list[i], "*?") >= 0 {
-			glob, err := filepath.Glob(list[i])
+	if doglob {
+		return glob(args)
+	}
+	return args
+}
+
+func glob(args []string) []string {
+	for i := 0; i < len(args); i++ {
+		if n, _ := peekany(args[i], "*?"); n >= 0 {
+			glob, err := filepath.Glob(args[i])
 			if err != nil {
 				continue
 			}
-			list = append(list[:i], append(list[i+1:], glob...)...)
+			args = append(args[:i], append(args[i+1:], glob...)...)
 			i += len(glob) - 1
 		}
 	}
-	return list
+	return args
 }
 
 func mkcmd(args []string, stdin *os.File, stdout *os.File, stderr *os.File) *exec.Cmd {
@@ -333,10 +378,6 @@ func doprompt(p bool) {
 }
 
 func main() {
-	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: %s [file]\n", os.Args[0])
-		flag.PrintDefaults()
-	}
 	flag.Parse()
 	var (
 		file   *os.File
