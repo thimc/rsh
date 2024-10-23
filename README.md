@@ -39,4 +39,3 @@ Grammar is roughly:
 
 * finish up the quoting functionality, escaping characters is not
   working as expected.
-* file pattern matching, i.e globbing `ls /h*/` would expand to `ls /home/`

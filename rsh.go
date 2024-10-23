@@ -69,7 +69,7 @@ func parse(ln string) (Cmd, error) {
 }
 
 func parsebuiltin(ln *string) error {
-	args := strings.Fields(*ln)
+	args := fields(*ln)
 	switch args[0] {
 	case "#":
 		*ln = ""
@@ -226,6 +226,15 @@ func fields(s string) []string {
 	}
 	if len(current) > 0 {
 		list = append(list, current)
+	}
+	for i := 0; i < len(list); i++ {
+		if strings.IndexAny(list[i], "*?") >= 0 {
+			glob, err := filepath.Glob(list[i])
+			if err != nil || len(glob) < 1 {
+				continue
+			}
+			list[i] = glob[0]
+		}
 	}
 	return list
 }
