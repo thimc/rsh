@@ -70,6 +70,9 @@ func parse(ln string) (Cmd, error) {
 
 func parsebuiltin(ln *string) error {
 	args := fields(*ln)
+	if len(args) < 1 {
+		return nil
+	}
 	switch args[0] {
 	case "#":
 		*ln = ""
