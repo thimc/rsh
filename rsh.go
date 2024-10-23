@@ -319,8 +319,12 @@ func main() {
 		flag.PrintDefaults()
 	}
 	flag.Parse()
-	var file *os.File
-	prompt := true
+	var (
+		file   *os.File
+		cmd    Cmd
+		err    error
+		prompt = true
+	)
 	switch args := flag.Args(); flag.NArg() {
 	case 0:
 		file = os.Stdin
@@ -339,13 +343,14 @@ func main() {
 	}
 	doprompt(prompt)
 	for s = bufio.NewScanner(file); s.Scan(); doprompt(prompt) {
-		cmd, err := parse(strings.TrimSuffix(s.Text(), "\n"))
+		cmd, err = parse(strings.TrimSuffix(s.Text(), "\n"))
+		if err != nil {
+			goto printerr
+		}
 		if cmd != nil && *verbose {
 			fmt.Printf("%#v\n", cmd)
 		}
-		if err != nil {
-			goto printerr
-		} else if err := run(cmd, file, os.Stdout, os.Stderr); err != nil {
+		if err = run(cmd, file, os.Stdout, os.Stderr); err != nil {
 			goto printerr
 		}
 		continue
