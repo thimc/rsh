@@ -82,7 +82,9 @@ func parsebuiltin(ln *string) error {
 			return fmt.Errorf("Usage: cd directory")
 		}
 		*ln = ""
-		return os.Chdir(args[1])
+		if err := os.Chdir(args[1]); err != nil {
+			return fmt.Errorf("can't cd %s", args[1])
+		}
 	case "path":
 		if len(args) < 2 {
 			fmt.Println("path", strings.Join(path, " "))
@@ -145,6 +147,11 @@ func parsepipe(ln *string) (Cmd, error) {
 		if err != nil {
 			return nil, err
 		}
+		if cmd, ok := cmd.(Redir); ok {
+			if cmd.Out.Path != "" {
+				return nil, fmt.Errorf("pipe and > together")
+			}
+		}
 		cmd = Pipe{Left: cmd, Right: right}
 	}
 	return cmd, err
@@ -172,7 +179,7 @@ done:
 	return cmd, nil
 }
 
-func parseredirs(args string) (Redir, error) {
+func parseredirs(args string) (Cmd, error) {
 	var rcmd Redir
 	for {
 		i := strings.IndexAny(args, "<>")
@@ -191,12 +198,21 @@ func parseredirs(args string) (Redir, error) {
 			end += start
 		}
 		path := strings.TrimSpace(args[start:end])
+		if path == "" {
+			return nil, fmt.Errorf("ambiguous redirection")
+		}
 		args = args[:i] + args[end:]
 		rcmd.Cmd = Exec{Args: fields(args)}
 		switch r {
 		case '>':
+			if rcmd.Out.Path != "" {
+				return nil, fmt.Errorf("duplicate redirection")
+			}
 			rcmd.Out = file{Path: path, Mode: os.O_WRONLY | os.O_CREATE | os.O_TRUNC}
 		case '<':
+			if rcmd.In.Path != "" {
+				return nil, fmt.Errorf("duplicate redirection")
+			}
 			rcmd.In = file{Path: path, Mode: os.O_RDONLY}
 		}
 	}
@@ -209,8 +225,7 @@ func fields(s string) []string {
 		current string
 		quoted  = false
 	)
-	for i := 0; i < len(s); i++ {
-		r := s[i]
+	for _, r := range s {
 		switch r {
 		case '\'':
 			quoted = !quoted
@@ -267,19 +282,19 @@ func run(cmd Cmd, stdin *os.File, stdout *os.File, stderr *os.File) error {
 		if len(cmd.Args) < 1 {
 			return nil
 		}
-		return mkcmd(cmd.Args, stdin, stdout, stderr).Run()
+		mkcmd(cmd.Args, stdin, stdout, stderr).Run()
 	case Redir:
 		if cmd.In.Path != "" {
 			stdin, err = os.OpenFile(cmd.In.Path, cmd.In.Mode, 0)
 			if err != nil {
-				return nil
+				return fmt.Errorf("can't open %s", cmd.Out.Path)
 			}
 			defer stdin.Close()
 		}
 		if cmd.Out.Path != "" {
 			stdout, err = os.OpenFile(cmd.Out.Path, cmd.Out.Mode, 0)
 			if err != nil {
-				return nil
+				return fmt.Errorf("can't create %s", cmd.Out.Path)
 			}
 			defer stdout.Close()
 		}
@@ -359,6 +374,6 @@ func main() {
 		}
 		continue
 	printerr:
-		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintf(os.Stderr, "%s: %s\n", os.Args[0], err)
 	}
 }
