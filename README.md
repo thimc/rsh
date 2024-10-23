@@ -1,9 +1,9 @@
 # rsh
 
-Really simple shell interpreter written in go, inspired by [Tom
-Duff](https://en.wikipedia.org/wiki/Tom_Duff)'s "ssh.c".
+Shell interpreter written in go, inspired by [Tom
+Duff](https://en.wikipedia.org/wiki/Tom_Duff)'s simple shell (ssh.c).
 
-rsh is capable of the following:
+rsh is capable of:
 
 * simple commands
 * file patterns
@@ -16,9 +16,8 @@ rsh is capable of the following:
 * only built-ins are `cd`, `path` and `exit`
 * nothing else
 
-It is very much work in progress so missing functions and random panics
-are normal, and are to be expected.  It is _not_ ready daily use just
-yet.
+It is very much work in progress so random panics are expected.
+It is _not_ ready for daily use just yet.
 
 Grammar is roughly:
 
@@ -39,3 +38,4 @@ Grammar is roughly:
 
 * finish up the quoting functionality, escaping characters is not
   working as expected.
+* probably something else
