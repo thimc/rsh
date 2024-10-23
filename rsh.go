@@ -230,10 +230,11 @@ func fields(s string) []string {
 	for i := 0; i < len(list); i++ {
 		if strings.IndexAny(list[i], "*?") >= 0 {
 			glob, err := filepath.Glob(list[i])
-			if err != nil || len(glob) < 1 {
+			if err != nil {
 				continue
 			}
-			list[i] = glob[0]
+			list = append(list[:i], append(list[i+1:], glob...)...)
+			i += len(glob) - 1
 		}
 	}
 	return list
