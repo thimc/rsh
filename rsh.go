@@ -3,6 +3,7 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -31,6 +32,7 @@ type Conditional struct {
 type Pipe struct{ Left, Right Cmd }
 type Exec struct{ Args []string }
 
+var verbose = flag.Bool("v", false, "enables verbose mode")
 var (
 	s    *bufio.Scanner
 	path = []string{".", "/bin", "/usr/bin", "/usr/local/bin"}
@@ -229,9 +231,6 @@ func fields(s string) []string {
 }
 
 func mkcmd(args []string, stdin *os.File, stdout *os.File, stderr *os.File) *exec.Cmd {
-	if len(args) < 1 {
-		panic("empty list")
-	}
 	var name = args[0]
 	if len(args) > 1 {
 		args = args[1:]
@@ -306,28 +305,35 @@ func doprompt(p bool) {
 }
 
 func main() {
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: %s [file]\n", os.Args[0])
+		flag.PrintDefaults()
+	}
+	flag.Parse()
 	var file *os.File
 	prompt := true
-	switch len(os.Args) {
-	case 1:
+	switch args := flag.Args(); flag.NArg() {
+	case 0:
 		file = os.Stdin
-	case 2:
+	case 1:
 		var err error
-		file, err = os.Open(os.Args[1])
+		file, err = os.Open(args[0])
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "%s: can't open %s\n", os.Args[0], os.Args[1])
+			fmt.Fprintf(os.Stderr, "%s: can't open %s\n", os.Args[0], args[0])
 			os.Exit(1)
 		}
 		prompt = false
 		defer file.Close()
 	default:
-		fmt.Fprintf(os.Stderr, "Usage: %s [file]\n", os.Args[0])
+		flag.Usage()
 		os.Exit(1)
 	}
 	doprompt(prompt)
 	for s = bufio.NewScanner(file); s.Scan(); doprompt(prompt) {
 		cmd, err := parse(strings.TrimSuffix(s.Text(), "\n"))
-		fmt.Printf("%#v\n", cmd)
+		if cmd != nil && *verbose {
+			fmt.Printf("%#v\n", cmd)
+		}
 		if err != nil {
 			goto printerr
 		} else if err := run(cmd, file, os.Stdout, os.Stderr); err != nil {
