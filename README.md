@@ -9,7 +9,7 @@ rsh is capable of the following:
 * file patterns
 * quoting ('...' and \c)
 * continuation with `\` at end of line
-* redirection
+* redirection (`>` and `<`)
 * pipelines
 * synchronous and asynchronous execution (`;` and `&`)
 * conditional execution (`&&` and `||`)
