@@ -389,7 +389,6 @@ func main() {
 	case 0:
 		file = os.Stdin
 	case 1:
-		var err error
 		file, err = os.Open(args[0])
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s: can't open %s\n", os.Args[0], args[0])
