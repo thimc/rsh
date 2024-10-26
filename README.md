@@ -36,6 +36,4 @@ Grammar is roughly:
 
 ## TODO
 
-* finish up the quoting functionality, escaping characters is not
-  working as expected.
 * probably something else
