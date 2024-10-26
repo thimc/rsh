@@ -1,4 +1,31 @@
-// Command rsh implements a really simple Unix-like shell interpreter.
+// Command rsh implements a simple shell interpreter.
+//
+// rsh is capable of:
+//
+//   - simple commands
+//   - file patterns (“?“ and “*“)
+//   - quoting (“'...'“ and “\c“)
+//   - continuation with “\“ at end of line
+//   - redirection (“>“ and “<“)
+//   - pipelines
+//   - synchronous and asynchronous execution (“;“ and “&“)
+//   - conditional execution (“&&“ and “||“)
+//   - only built-ins are “cd“, “path“ and “exit“
+//
+// The grammar is defined as:
+//
+//	cmd:	simple
+//	|	simple | cmd
+//	|	simple ; cmd
+//	|	simple & cmd
+//	|	simple && cmd
+//	|	simple || cmd
+//	simple:
+//	|	simple word
+//	|	simple < word
+//	|	simple > word
+//	|	simple < word1 > word2
+//	|	simple &
 package main
 
 import (
