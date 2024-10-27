@@ -6,7 +6,7 @@ Duff](https://en.wikipedia.org/wiki/Tom_Duff)'s simple shell (ssh.c).
 rsh is capable of:
 
 * simple commands
-* file patterns
+* file patterns (`?` and `*`)
 * quoting ('...' and \c)
 * continuation with `\` at end of line
 * redirection (`>` and `<`)
